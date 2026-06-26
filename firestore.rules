@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Profil UMKM: hanya pemilik akun yang boleh membaca/menulis profilnya sendiri
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Bahan baku: hanya terlihat oleh UMKM pemilik data
+    match /materials/{materialId} {
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid;
+      allow get, update, delete: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+      allow list: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Pelanggan: hanya terlihat oleh UMKM pemilik data
+    match /customers/{customerId} {
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid;
+      allow get, update, delete: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+      allow list: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Pesanan: pemilik UMKM bisa CRUD penuh atas datanya sendiri.
+    // Siapa pun (tanpa login) boleh GET satu dokumen by ID untuk halaman tracking publik,
+    // tapi tidak bisa melakukan LIST/menjelajah seluruh koleksi pesanan.
+    match /orders/{orderId} {
+      allow get: if true;
+      allow list: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if request.auth != null
+                    && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
