@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Search, AlertTriangle, Pencil, Trash2, Boxes } from "lucide-react";
 import Modal from "../components/Modal";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { ListSkeleton } from "../components/Skeleton";
 import { FieldLabel, IconBtn, StepBtn } from "../components/FormElements";
 import { useMaterials } from "../hooks/useMaterials";
 import { INK, PAPER, PAPER_DARK, RUST, THREAD, UNITS, inputStyle } from "../utils/constants";
@@ -13,8 +15,9 @@ export default function MaterialsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Material | null>(null);
   const [query, setQuery] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  if (loading) return null;
+  if (loading) return <ListSkeleton count={4} />;
 
   const filtered = materials
     .filter((m) => m.name.toLowerCase().includes(query.toLowerCase()))
@@ -103,7 +106,7 @@ export default function MaterialsPage() {
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <IconBtn onClick={() => { setEditing(m); setShowForm(true); }} icon={Pencil} />
-                    <IconBtn onClick={() => remove(m.id)} icon={Trash2} danger />
+                    <IconBtn onClick={() => setConfirmDeleteId(m.id)} icon={Trash2} danger />
                   </div>
                 </div>
 
@@ -140,6 +143,18 @@ export default function MaterialsPage() {
           onClose={() => {
             setShowForm(false);
             setEditing(null);
+          }}
+        />
+      )}
+
+      {confirmDeleteId && (
+        <ConfirmDialog
+          title="Hapus bahan ini?"
+          message="Tindakan ini tidak dapat dibatalkan."
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => {
+            remove(confirmDeleteId);
+            setConfirmDeleteId(null);
           }}
         />
       )}

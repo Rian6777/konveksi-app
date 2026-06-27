@@ -1,14 +1,41 @@
-import { useState } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
 import type { FormEvent } from "react";
-import { Plus, Search, Pencil, Trash2, Package, Link2, Check } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  Package,
+  Link2,
+  Check,
+  MessageCircle,
+  QrCode,
+  AlertTriangle,
+} from "lucide-react";
 import Modal from "../components/Modal";
 import StatusPill from "../components/StatusPill";
+import ProgressBar from "../components/ProgressBar";
+import Timeline from "../components/Timeline";
+import ImageUploader from "../components/ImageUploader";
+import ImageZoomModal from "../components/ImageZoomModal";
+import QRCodeModal from "../components/QRCodeModal";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { ListSkeleton } from "../components/Skeleton";
 import { FieldLabel, IconBtn } from "../components/FormElements";
 import { useOrders } from "../hooks/useOrders";
 import { useCustomers } from "../hooks/useCustomers";
+import { useAuth } from "../contexts/AuthContext";
 import { INK, PAPER, RUST, THREAD, inputStyle } from "../utils/constants";
-import { formatDate, todayISO, buildTrackingLink, copyToClipboard } from "../utils/helpers";
-import type { Order, OrderStatus } from "../utils/types";
+import {
+  formatDate,
+  todayISO,
+  buildTrackingLink,
+  buildWhatsAppLink,
+  buildTrackingWhatsAppMessage,
+  copyToClipboard,
+} from "../utils/helpers";
+import { PRODUCTION_STEPS, daysRemaining, isLate, formatQueueNumber, getProgressForStatus } from "../utils/production";
+import type { Order, OrderStatus, ProductionStep } from "../utils/types";
 
 const FILTERS: { key: "semua" | OrderStatus; label: string }[] = [
   { key: "semua", label: "Semua" },
@@ -18,26 +45,32 @@ const FILTERS: { key: "semua" | OrderStatus; label: string }[] = [
 ];
 
 export default function OrdersPage() {
-  const { orders, loading, create, update, remove, cycleStatus } = useOrders();
+  const { orders, loading, create, update, remove, setStatus, setStep, updateImages, updateFinishedImages } = useOrders();
   const { customers, loading: loadingCustomers } = useCustomers();
+  const { user } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Order | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"semua" | OrderStatus>("semua");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null);
+  const [qrOrderId, setQrOrderId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  if (loading || loadingCustomers) return null;
+  const filtered = useMemo(
+    () =>
+      orders
+        .filter((o) => filter === "semua" || o.status === filter)
+        .filter(
+          (o) =>
+            o.customerName.toLowerCase().includes(query.toLowerCase()) ||
+            o.productName.toLowerCase().includes(query.toLowerCase()) ||
+            o.id.toLowerCase().includes(query.toLowerCase())
+        ),
+    [orders, filter, query]
+  );
 
-  const filtered = orders
-    .filter((o) => filter === "semua" || o.status === filter)
-    .filter(
-      (o) =>
-        o.customerName.toLowerCase().includes(query.toLowerCase()) ||
-        o.productName.toLowerCase().includes(query.toLowerCase()) ||
-        o.id.toLowerCase().includes(query.toLowerCase())
-    );
-
-  async function handleSave(data: Omit<Order, "id" | "ownerId">) {
+  async function handleSave(data: Omit<Order, "id" | "ownerId" | "queueNumber" | "productionStep" | "progress" | "images" | "finishedImages" | "history">) {
     if (editing) {
       await update(editing.id, data);
     } else {
@@ -47,12 +80,16 @@ export default function OrdersPage() {
     setEditing(null);
   }
 
-  async function handleCopyLink(orderId: string) {
+  const handleCopyLink = useCallback(async (orderId: string) => {
     const ok = await copyToClipboard(buildTrackingLink(orderId));
     if (ok) {
       setCopiedId(orderId);
       setTimeout(() => setCopiedId(null), 1800);
     }
+  }, []);
+
+  if (loading || loadingCustomers) {
+    return <ListSkeleton count={4} />;
   }
 
   return (
@@ -133,73 +170,24 @@ export default function OrdersPage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map((o) => (
-            <div
+            <OrderCard
               key={o.id}
-              style={{
-                background: "#FFFDF8",
-                border: `1.5px solid ${INK}15`,
-                borderRadius: 14,
-                padding: 14,
+              order={o}
+              copied={copiedId === o.id}
+              onCopyLink={() => handleCopyLink(o.id)}
+              onEdit={() => {
+                setEditing(o);
+                setShowForm(true);
               }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: `${INK}55`, letterSpacing: 0.4 }}>
-                    {o.id}
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: 15.5, fontFamily: "'Space Grotesk', sans-serif", marginTop: 2 }}>
-                    {o.customerName}
-                  </div>
-                  <div style={{ fontSize: 13.5, color: `${INK}85`, marginTop: 1 }}>
-                    {o.productName} · {o.qty} pcs
-                  </div>
-                  <div style={{ fontSize: 12, color: `${INK}60`, marginTop: 4 }}>
-                    Masuk {formatDate(o.tanggalMasuk)}
-                    {o.estimasiSelesai && ` · Estimasi ${formatDate(o.estimasiSelesai)}`}
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                  <button onClick={() => cycleStatus(o)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                    <StatusPill status={o.status} />
-                  </button>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <IconBtn onClick={() => { setEditing(o); setShowForm(true); }} icon={Pencil} />
-                    <IconBtn onClick={() => remove(o.id)} icon={Trash2} danger />
-                  </div>
-                </div>
-              </div>
-
-              {o.notes && (
-                <>
-                  <div style={{ height: 8 }} />
-                  <div style={{ fontSize: 13, color: `${INK}75`, fontStyle: "italic" }}>&ldquo;{o.notes}&rdquo;</div>
-                </>
-              )}
-
-              <div style={{ height: 10 }} />
-              <button
-                onClick={() => handleCopyLink(o.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: copiedId === o.id ? "#E8F0E3" : THREAD + "12",
-                  color: copiedId === o.id ? "#3F6342" : THREAD,
-                  border: `1.5px solid ${copiedId === o.id ? "#3F634240" : THREAD + "30"}`,
-                  borderRadius: 8,
-                  padding: "7px 12px",
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  width: "100%",
-                  justifyContent: "center",
-                }}
-              >
-                {copiedId === o.id ? <Check size={14} strokeWidth={2.5} /> : <Link2 size={14} strokeWidth={2.5} />}
-                {copiedId === o.id ? "Link tracking disalin!" : "Copy Tracking Link"}
-              </button>
-            </div>
+              onDelete={() => setConfirmDeleteId(o.id)}
+              onZoom={setZoomUrl}
+              onShowQr={() => setQrOrderId(o.id)}
+              onSetStatus={(s) => setStatus(o, s)}
+              onSetStep={(s) => setStep(o, s)}
+              onUpdateImages={(imgs) => updateImages(o.id, imgs)}
+              onUpdateFinishedImages={(imgs) => updateFinishedImages(o.id, imgs)}
+              ownerId={user?.uid || ""}
+            />
           ))}
         </div>
       )}
@@ -215,9 +203,261 @@ export default function OrdersPage() {
           }}
         />
       )}
+
+      {zoomUrl && <ImageZoomModal url={zoomUrl} onClose={() => setZoomUrl(null)} />}
+      {qrOrderId && <QRCodeModal orderId={qrOrderId} onClose={() => setQrOrderId(null)} />}
+      {confirmDeleteId && (
+        <ConfirmDialog
+          title="Hapus pesanan ini?"
+          message="Tindakan ini tidak dapat dibatalkan. Riwayat dan foto pesanan akan ikut terhapus."
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => {
+            remove(confirmDeleteId);
+            setConfirmDeleteId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
+
+const OrderCard = memo(function OrderCard({
+  order: o,
+  copied,
+  onCopyLink,
+  onEdit,
+  onDelete,
+  onZoom,
+  onShowQr,
+  onSetStatus,
+  onSetStep,
+  onUpdateImages,
+  onUpdateFinishedImages,
+  ownerId,
+}: {
+  order: Order;
+  copied: boolean;
+  onCopyLink: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onZoom: (url: string) => void;
+  onShowQr: () => void;
+  onSetStatus: (s: OrderStatus) => void;
+  onSetStep: (s: ProductionStep) => void;
+  onUpdateImages: (imgs: string[]) => void;
+  onUpdateFinishedImages: (imgs: string[]) => void;
+  ownerId: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const remaining = daysRemaining(o.estimasiSelesai);
+  const late = isLate(o.estimasiSelesai, o.status);
+  const waLink = buildWhatsAppLink(o.customerPhone, buildTrackingWhatsAppMessage(o.id));
+
+  return (
+    <div
+      style={{
+        background: "#FFFDF8",
+        border: `1.5px solid ${late ? RUST + "50" : INK + "15"}`,
+        borderRadius: 14,
+        padding: 14,
+      }}
+    >
+      <div style={{ display: "flex", gap: 10 }}>
+        {o.images[0] && (
+          <img
+            src={o.images[0]}
+            alt={o.productName}
+            loading="lazy"
+            onClick={() => onZoom(o.images[0])}
+            style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flexShrink: 0, cursor: "zoom-in", border: `1px solid ${INK}15` }}
+          />
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span
+              style={{
+                fontSize: 11.5,
+                fontWeight: 800,
+                color: THREAD,
+                background: `${THREAD}12`,
+                borderRadius: 6,
+                padding: "1px 6px",
+              }}
+            >
+              {formatQueueNumber(o.queueNumber)}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: `${INK}55`, letterSpacing: 0.3 }}>{o.id}</span>
+            {late && (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 800,
+                  color: "#fff",
+                  background: RUST,
+                  borderRadius: 6,
+                  padding: "1px 6px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                }}
+              >
+                <AlertTriangle size={10} /> Terlambat
+              </span>
+            )}
+          </div>
+          <div style={{ fontWeight: 700, fontSize: 15.5, fontFamily: "'Space Grotesk', sans-serif", marginTop: 2 }}>
+            {o.customerName}
+          </div>
+          <div style={{ fontSize: 13.5, color: `${INK}85`, marginTop: 1 }}>
+            {o.productName} · {o.qty} pcs
+          </div>
+          <div style={{ fontSize: 12, color: `${INK}60`, marginTop: 4 }}>
+            Masuk {formatDate(o.tanggalMasuk)}
+            {o.estimasiSelesai && ` · Estimasi ${formatDate(o.estimasiSelesai)}`}
+            {remaining !== null && o.status !== "selesai" && (
+              <> · {remaining >= 0 ? `Sisa ${remaining} hari` : `Lewat ${Math.abs(remaining)} hari`}</>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <select
+            value={o.status}
+            onChange={(e) => onSetStatus(e.target.value as OrderStatus)}
+            style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer" }}
+          >
+            <option value="pending">Pending</option>
+            <option value="proses">Proses</option>
+            <option value="selesai">Selesai</option>
+          </select>
+          <StatusPill status={o.status} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <IconBtn onClick={onEdit} icon={Pencil} />
+            <IconBtn onClick={onDelete} icon={Trash2} danger />
+          </div>
+        </div>
+      </div>
+
+      {o.status === "proses" && (
+        <div style={{ marginTop: 12 }}>
+          <select
+            value={o.productionStep}
+            onChange={(e) => onSetStep(e.target.value as ProductionStep)}
+            style={{ ...inputStyle, marginBottom: 8, fontSize: 13 }}
+          >
+            {PRODUCTION_STEPS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <ProgressBar progress={getProgressForStatus(o.status, o.productionStep)} />
+        </div>
+      )}
+      {o.status === "selesai" && (
+        <div style={{ marginTop: 12 }}>
+          <ProgressBar progress={100} />
+        </div>
+      )}
+
+      {o.notes && (
+        <>
+          <div style={{ height: 8 }} />
+          <div style={{ fontSize: 13, color: `${INK}75`, fontStyle: "italic" }}>&ldquo;{o.notes}&rdquo;</div>
+        </>
+      )}
+
+      <div style={{ height: 10 }} />
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          onClick={onCopyLink}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: copied ? "#E8F0E3" : THREAD + "12",
+            color: copied ? "#3F6342" : THREAD,
+            border: `1.5px solid ${copied ? "#3F634240" : THREAD + "30"}`,
+            borderRadius: 8,
+            padding: "8px 0",
+            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", justifyContent: "center",
+          }}
+        >
+          {copied ? <Check size={13} strokeWidth={2.5} /> : <Link2 size={13} strokeWidth={2.5} />}
+          {copied ? "Disalin!" : "Copy Link"}
+        </button>
+        <a
+          href={waLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: "#25D36615",
+            color: "#1f8a52",
+            border: "1.5px solid #25D36640",
+            borderRadius: 8,
+            padding: "8px 0",
+            fontSize: 12, fontWeight: 700, textDecoration: "none", fontFamily: "'Space Grotesk', sans-serif", justifyContent: "center",
+          }}
+        >
+          <MessageCircle size={13} strokeWidth={2.5} /> WhatsApp
+        </a>
+        <button
+          onClick={onShowQr}
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: `${INK}08`,
+            color: INK,
+            border: `1.5px solid ${INK}25`,
+            borderRadius: 8,
+            padding: "8px 0",
+            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif", justifyContent: "center",
+          }}
+        >
+          <QrCode size={13} strokeWidth={2.5} /> QR
+        </button>
+      </div>
+
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        style={{ background: "none", border: "none", color: THREAD, fontSize: 12, fontWeight: 700, cursor: "pointer", marginTop: 10, padding: 0 }}
+      >
+        {expanded ? "Tutup detail" : "Lihat foto, riwayat & detail"}
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 16 }}>
+          <ImageUploader
+            images={o.images}
+            onChange={onUpdateImages}
+            storagePathPrefix={`orders/${ownerId}/${o.id}/produk`}
+            label="Foto Produk"
+            onZoom={onZoom}
+          />
+          {o.status === "selesai" && (
+            <ImageUploader
+              images={o.finishedImages}
+              onChange={onUpdateFinishedImages}
+              storagePathPrefix={`orders/${ownerId}/${o.id}/hasil`}
+              label="Foto Hasil Jadi"
+              onZoom={onZoom}
+            />
+          )}
+          <div>
+            <FieldLabel>Riwayat Produksi</FieldLabel>
+            <Timeline history={o.history} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 function OrderForm({
   initial,
@@ -227,7 +467,7 @@ function OrderForm({
 }: {
   initial: Order | null;
   customers: { id: string; name: string; phone: string }[];
-  onSave: (data: Omit<Order, "id" | "ownerId">) => void;
+  onSave: (data: Omit<Order, "id" | "ownerId" | "queueNumber" | "productionStep" | "progress" | "images" | "finishedImages" | "history">) => void;
   onClose: () => void;
 }) {
   const [form, setForm] = useState(
@@ -279,26 +519,14 @@ function OrderForm({
         {initial && (
           <div>
             <FieldLabel>Nomor Pesanan</FieldLabel>
-            <div
-              style={{
-                ...inputStyle,
-                background: "#EDE3CF",
-                fontWeight: 700,
-                color: `${INK}90`,
-              }}
-            >
-              {initial.id}
+            <div style={{ ...inputStyle, background: "#EDE3CF", fontWeight: 700, color: `${INK}90` }}>
+              {initial.id} &middot; {formatQueueNumber(initial.queueNumber)}
             </div>
           </div>
         )}
         <div>
           <FieldLabel>Pelanggan</FieldLabel>
-          <select
-            style={inputStyle}
-            value={form.customerId}
-            onChange={(e) => update("customerId", e.target.value)}
-            required
-          >
+          <select style={inputStyle} value={form.customerId} onChange={(e) => update("customerId", e.target.value)} required>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} · {c.phone}
@@ -319,21 +547,11 @@ function OrderForm({
         <div style={{ display: "flex", gap: 12 }}>
           <div style={{ flex: 1 }}>
             <FieldLabel>Jumlah (pcs)</FieldLabel>
-            <input
-              type="number"
-              min="1"
-              style={inputStyle}
-              value={form.qty}
-              onChange={(e) => update("qty", Number(e.target.value) as any)}
-            />
+            <input type="number" min="1" style={inputStyle} value={form.qty} onChange={(e) => update("qty", Number(e.target.value) as any)} />
           </div>
           <div style={{ flex: 1 }}>
             <FieldLabel>Status</FieldLabel>
-            <select
-              style={inputStyle}
-              value={form.status}
-              onChange={(e) => update("status", e.target.value as OrderStatus)}
-            >
+            <select style={inputStyle} value={form.status} onChange={(e) => update("status", e.target.value as OrderStatus)}>
               <option value="pending">Pending</option>
               <option value="proses">Proses</option>
               <option value="selesai">Selesai</option>
@@ -343,22 +561,11 @@ function OrderForm({
         <div style={{ display: "flex", gap: 12 }}>
           <div style={{ flex: 1 }}>
             <FieldLabel>Tanggal masuk</FieldLabel>
-            <input
-              type="date"
-              style={inputStyle}
-              value={form.tanggalMasuk}
-              onChange={(e) => update("tanggalMasuk", e.target.value)}
-              required
-            />
+            <input type="date" style={inputStyle} value={form.tanggalMasuk} onChange={(e) => update("tanggalMasuk", e.target.value)} required />
           </div>
           <div style={{ flex: 1 }}>
             <FieldLabel>Estimasi selesai</FieldLabel>
-            <input
-              type="date"
-              style={inputStyle}
-              value={form.estimasiSelesai}
-              onChange={(e) => update("estimasiSelesai", e.target.value)}
-            />
+            <input type="date" style={inputStyle} value={form.estimasiSelesai} onChange={(e) => update("estimasiSelesai", e.target.value)} />
           </div>
         </div>
         <div>
@@ -370,6 +577,11 @@ function OrderForm({
             placeholder="cth. Warna navy, ukuran campur"
           />
         </div>
+        {!initial && (
+          <div style={{ fontSize: 12, color: `${INK}60`, fontStyle: "italic" }}>
+            Nomor antrian &amp; foto produk dapat diatur setelah pesanan tersimpan, melalui tombol &ldquo;Lihat foto, riwayat &amp; detail&rdquo;.
+          </div>
+        )}
         <button
           type="submit"
           style={{

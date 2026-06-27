@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Foto pesanan disimpan di orders/{ownerId}/{orderId}/(produk|hasil)/{file}
+    // - Siapa pun boleh MEMBACA foto (dibutuhkan agar halaman tracking publik
+    //   bisa menampilkan foto produk & foto hasil jadi tanpa login).
+    // - Hanya UMKM pemilik (ownerId yang sama dengan uid login) yang boleh
+    //   mengunggah, mengganti, atau menghapus foto.
+    match /orders/{ownerId}/{orderId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+                   && request.auth.uid == ownerId
+                   && request.resource.size < 6 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == ownerId;
+    }
+  }
+}

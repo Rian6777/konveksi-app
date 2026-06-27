@@ -28,6 +28,11 @@ service cloud.firestore {
                     && resource.data.ownerId == request.auth.uid;
     }
 
+    // Counter nomor antrian per UMKM (document ID = ownerId)
+    match /counters/{ownerId} {
+      allow read, write: if request.auth != null && request.auth.uid == ownerId;
+    }
+
     // Pesanan: pemilik UMKM bisa CRUD penuh atas datanya sendiri.
     // Siapa pun (tanpa login) boleh GET satu dokumen by ID untuk halaman tracking publik,
     // tapi tidak bisa melakukan LIST/menjelajah seluruh koleksi pesanan.

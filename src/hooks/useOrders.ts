@@ -5,13 +5,20 @@ import {
   addOrder,
   updateOrder,
   deleteOrder,
+  changeOrderStatus,
+  changeProductionStep,
+  setOrderImages,
+  setOrderFinishedImages,
 } from "../firebase/ordersService";
-import type { Order } from "../utils/types";
+import type { Order, OrderStatus, ProductionStep } from "../utils/types";
+import { useToast } from "../contexts/ToastContext";
 
 export function useOrders() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -20,31 +27,74 @@ export function useOrders() {
       return;
     }
     setLoading(true);
-    const unsub = subscribeOrders(user.uid, (list) => {
-      setOrders(list);
-      setLoading(false);
-    });
+    setError(null);
+    const unsub = subscribeOrders(
+      user.uid,
+      (list) => {
+        setOrders(list);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, [user]);
 
-  async function create(data: Omit<Order, "id" | "ownerId">) {
+  async function withErrorHandling<T>(action: () => Promise<T>, errorMessage: string): Promise<T | null> {
+    try {
+      return await action();
+    } catch (err) {
+      console.error(err);
+      showToast(errorMessage, "error");
+      setError(errorMessage);
+      return null;
+    }
+  }
+
+  async function create(data: Omit<Order, "id" | "ownerId" | "queueNumber" | "productionStep" | "progress" | "images" | "finishedImages" | "history">) {
     if (!user) return null;
-    return addOrder(user.uid, data);
+    return withErrorHandling(() => addOrder(user.uid, data), "Gagal menyimpan pesanan. Periksa koneksi internet Anda.");
   }
 
   async function update(id: string, data: Partial<Order>) {
-    await updateOrder(id, data);
+    return withErrorHandling(() => updateOrder(id, data), "Gagal memperbarui pesanan.");
   }
 
   async function remove(id: string) {
-    await deleteOrder(id);
+    return withErrorHandling(() => deleteOrder(id), "Gagal menghapus pesanan.");
   }
 
   async function cycleStatus(order: Order) {
-    const seq: Order["status"][] = ["pending", "proses", "selesai"];
+    const seq: OrderStatus[] = ["pending", "proses", "selesai"];
     const next = seq[(seq.indexOf(order.status) + 1) % seq.length];
-    await updateOrder(order.id, { status: next });
+    return withErrorHandling(() => changeOrderStatus(order, next), "Gagal mengubah status pesanan.");
   }
 
-  return { orders, loading, create, update, remove, cycleStatus };
+  async function setStatus(order: Order, status: OrderStatus) {
+    return withErrorHandling(() => changeOrderStatus(order, status), "Gagal mengubah status pesanan.");
+  }
+
+  async function setStep(order: Order, step: ProductionStep) {
+    return withErrorHandling(() => changeProductionStep(order, step), "Gagal memperbarui tahapan produksi.");
+  }
+
+  async function updateImages(id: string, images: string[]) {
+    return withErrorHandling(() => setOrderImages(id, images), "Gagal memperbarui foto produk.");
+  }
+
+  async function updateFinishedImages(id: string, finishedImages: string[]) {
+    return withErrorHandling(() => setOrderFinishedImages(id, finishedImages), "Gagal memperbarui foto hasil jadi.");
+  }
+
+  return {
+    orders,
+    loading,
+    error,
+    create,
+    update,
+    remove,
+    cycleStatus,
+    setStatus,
+    setStep,
+    updateImages,
+    updateFinishedImages,
+  };
 }

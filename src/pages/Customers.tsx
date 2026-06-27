@@ -2,9 +2,12 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Search, Pencil, Trash2, Users, MessageCircle } from "lucide-react";
 import Modal from "../components/Modal";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { ListSkeleton } from "../components/Skeleton";
 import { FieldLabel, IconBtn } from "../components/FormElements";
 import { useCustomers } from "../hooks/useCustomers";
 import { INK, PAPER, RUST, THREAD, inputStyle } from "../utils/constants";
+import { buildWhatsAppLink } from "../utils/helpers";
 import type { Customer } from "../utils/types";
 
 export default function CustomersPage() {
@@ -12,8 +15,9 @@ export default function CustomersPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [query, setQuery] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  if (loading) return null;
+  if (loading) return <ListSkeleton count={4} />;
 
   const filtered = customers
     .filter(
@@ -101,10 +105,32 @@ export default function CustomersPage() {
                   {c.address && (
                     <div style={{ fontSize: 12.5, color: `${INK}60`, marginTop: 3 }}>{c.address}</div>
                   )}
+                  <a
+                    href={buildWhatsAppLink(c.phone, `Halo ${c.name}, terima kasih telah menjadi pelanggan kami.`)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      marginTop: 8,
+                      background: "#25D36615",
+                      color: "#1f8a52",
+                      border: "1.5px solid #25D36640",
+                      borderRadius: 7,
+                      padding: "5px 10px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textDecoration: "none",
+                      fontFamily: "'Space Grotesk', sans-serif",
+                    }}
+                  >
+                    <MessageCircle size={12} strokeWidth={2.5} /> Kirim WhatsApp
+                  </a>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <IconBtn onClick={() => { setEditing(c); setShowForm(true); }} icon={Pencil} />
-                  <IconBtn onClick={() => remove(c.id)} icon={Trash2} danger />
+                  <IconBtn onClick={() => setConfirmDeleteId(c.id)} icon={Trash2} danger />
                 </div>
               </div>
             </div>
@@ -119,6 +145,18 @@ export default function CustomersPage() {
           onClose={() => {
             setShowForm(false);
             setEditing(null);
+          }}
+        />
+      )}
+
+      {confirmDeleteId && (
+        <ConfirmDialog
+          title="Hapus pelanggan ini?"
+          message="Riwayat pelanggan ini tidak akan terhapus dari pesanan yang sudah ada, tapi data pelanggan tidak bisa dipilih lagi untuk pesanan baru."
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => {
+            remove(confirmDeleteId);
+            setConfirmDeleteId(null);
           }}
         />
       )}
