@@ -11,6 +11,8 @@ export default function GlobalStyle() {
       @keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
       @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes popIn { 0% { transform: scale(0.82); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+      .photo-pop { animation: popIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
       @media (prefers-reduced-motion: reduce) {
         .spin-slow { animation: none; }
       }

@@ -10,7 +10,7 @@ import { storage } from "./storage";
  * Mengompres & mengubah ukuran gambar di sisi browser sebelum diupload,
  * agar hemat kuota Storage dan lebih cepat diunggah dari koneksi UMKM yang lambat.
  */
-export async function compressImage(file: File, maxDimension = 1280, quality = 0.82): Promise<Blob> {
+export async function compressImage(file: File, maxDimension = 1280, quality = 0.8): Promise<Blob> {
   try {
     const imageBitmap = await createImageBitmap(file);
     let { width, height } = imageBitmap;
